@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Student Home</title>
+</head>
+<body>
+  <h1>Student Home</h1>
+  <p id="welcome">Loading...</p>
+  <p id="advisor"></p>
+  <button id="logout">Log out</button>
+
+  <script>
+    fetch("/api/me").then(r => r.json()).then(me => {
+      document.getElementById("welcome").textContent = "Welcome, " + me.full_name;
+      if (me.advisor) {
+        document.getElementById("advisor").textContent =
+          "Your advisor: " + me.advisor.full_name + " (" + me.advisor.department + ")";
+      }
+    });
+    document.getElementById("logout").onclick = async () => {
+      await fetch("/api/auth/logout", { method: "POST" });
+      window.location.href = "/login";
+    };
+  </script>
+</body>
+</html>
