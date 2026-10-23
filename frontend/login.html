@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in - Academic Advising</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f0f2f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    .card { background: #fff; padding: 32px; border-radius: 8px; width: 100%; max-width: 360px; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    p.sub { color: #666; margin: 0 0 20px; font-size: 14px; }
+    label { display: block; font-size: 14px; margin-bottom: 4px; }
+    input { width: 100%; padding: 10px; margin-bottom: 14px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+    button { width: 100%; padding: 10px; background: #1a56db; color: #fff; border: 0; border-radius: 4px; font-size: 15px; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: default; }
+    #error { color: #c0392b; font-size: 14px; margin-bottom: 12px; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Academic Advising</h1>
+    <p class="sub">Sign in to manage your appointments</p>
+    <form id="login-form">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <div id="error" role="alert"></div>
+      <button type="submit" id="submit">Sign in</button>
+    </form>
+  </main>
+
+  <script>
+    const form = document.getElementById("login-form");
+    const errorBox = document.getElementById("error");
+    const submitBtn = document.getElementById("submit");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      errorBox.textContent = "";
+      submitBtn.disabled = true;
+      try {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: document.getElementById("email").value,
+            password: document.getElementById("password").value,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          errorBox.textContent = data.error || "Login failed.";
+        } else {
+          window.location.href = data.redirect;
+        }
+      } catch (err) {
+        errorBox.textContent = "Could not reach the server.";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
