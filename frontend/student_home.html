@@ -2,26 +2,146 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Student Home</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <h1>Student Home</h1>
-  <p id="welcome">Loading...</p>
-  <p id="advisor"></p>
-  <button id="logout">Log out</button>
+  <header>
+    <h1>Student Home</h1>
+    <button id="logout">Log out</button>
+  </header>
+  <main>
+    <section>
+      <h2 id="welcome">Loading...</h2>
+      <p id="advisor" class="muted"></p>
+    </section>
 
+    <section>
+      <h2>Request an appointment</h2>
+      <label for="date">1. Pick a date</label>
+      <input id="date" type="date">
+      <label>2. Pick a time</label>
+      <div id="slots" class="slots"><span class="muted">Choose a date to see available times.</span></div>
+      <p id="slot-info" class="muted"></p>
+      <label for="topic">3. Topic</label>
+      <select id="topic"><option value="">Select a topic</option></select>
+      <label for="description">4. Short description</label>
+      <textarea id="description" maxlength="500"></textarea>
+      <div id="request-msg" class="msg" role="alert"></div>
+      <button id="send" type="button">Send request</button>
+    </section>
+
+    <section>
+      <h2>My appointments</h2>
+      <div id="appointments"><span class="muted">Loading...</span></div>
+    </section>
+  </main>
+
+  <script src="/static/common.js"></script>
   <script>
-    fetch("/api/me").then(r => r.json()).then(me => {
+    let selectedSlot = null;
+    const dateInput = document.getElementById("date");
+    const slotsBox = document.getElementById("slots");
+    const msg = document.getElementById("request-msg");
+
+    function localToday() {
+      const d = new Date();
+      return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    }
+    dateInput.min = localToday();
+
+    async function loadMe() {
+      const me = await api("/api/me");
       document.getElementById("welcome").textContent = "Welcome, " + me.full_name;
       if (me.advisor) {
         document.getElementById("advisor").textContent =
           "Your advisor: " + me.advisor.full_name + " (" + me.advisor.department + ")";
       }
-    });
-    document.getElementById("logout").onclick = async () => {
-      await fetch("/api/auth/logout", { method: "POST" });
-      window.location.href = "/login";
-    };
+    }
+
+    async function loadTopics() {
+      const topics = await api("/api/topics");
+      const select = document.getElementById("topic");
+      for (const t of topics) select.append(el("option", { value: t, textContent: t }));
+    }
+
+    async function loadSlots() {
+      selectedSlot = null;
+      document.getElementById("slot-info").textContent = "";
+      slotsBox.replaceChildren();
+      if (!dateInput.value) { slotsBox.append(el("span", { className: "muted", textContent: "Choose a date to see available times." })); return; }
+      try {
+        const slots = await api("/api/availability?date=" + dateInput.value);
+        if (slots.length === 0) {
+          slotsBox.append(el("span", { className: "muted", textContent: "Your advisor has no available times on this date." }));
+          return;
+        }
+        for (const s of slots) {
+          const b = el("button", { type: "button", className: "slot", disabled: !s.available,
+            textContent: s.start_time + " - " + s.end_time + (s.available ? "" : " (" + s.reason + ")") });
+          b.onclick = () => {
+            selectedSlot = s;
+            for (const other of slotsBox.children) other.classList.remove("selected");
+            b.classList.add("selected");
+            document.getElementById("slot-info").textContent =
+              s.meeting_mode + (s.location ? " - " + s.location : "");
+          };
+          slotsBox.append(b);
+        }
+      } catch (err) {
+        slotsBox.append(el("span", { className: "msg error", textContent: err.message }));
+      }
+    }
+
+    async function sendRequest() {
+      showMessage(msg, "");
+      if (!dateInput.value) { showMessage(msg, "Please choose a date.", "error"); return; }
+      if (!selectedSlot) { showMessage(msg, "Please choose a time.", "error"); return; }
+      const topic = document.getElementById("topic").value;
+      if (!topic) { showMessage(msg, "Please choose a meeting topic.", "error"); return; }
+      try {
+        await api("/api/appointments", { json: {
+          date: dateInput.value, start_time: selectedSlot.start_time,
+          topic, description: document.getElementById("description").value } });
+        showMessage(msg, "Request sent. Your advisor will review it.", "success");
+        document.getElementById("description").value = "";
+        await Promise.all([loadSlots(), loadAppointments()]);
+      } catch (err) {
+        showMessage(msg, err.message, "error");
+      }
+    }
+
+    async function loadAppointments() {
+      const box = document.getElementById("appointments");
+      const list = await api("/api/my-appointments");
+      box.replaceChildren();
+      if (list.length === 0) { box.append(el("span", { className: "muted", textContent: "You have no appointments yet." })); return; }
+      const table = el("table", {});
+      table.append(el("tr", {}, ...["Date", "Time", "Topic", "Status", "Files"].map(h => el("th", { textContent: h }))));
+      for (const a of list) {
+        const filesCell = el("td", {});
+        const toggle = el("button", { type: "button", className: "secondary", textContent: "Files (" + a.file_count + ")" });
+        const filesBox = el("div", { className: "files" });
+        toggle.onclick = () => {
+          if (filesBox.childElementCount) filesBox.replaceChildren(); else renderFiles(filesBox, a.id);
+        };
+        filesCell.append(toggle, filesBox);
+        const statusCell = el("td", {}, statusBadge(a.status));
+        if (a.decision_reason) statusCell.append(el("div", { className: "muted", textContent: a.decision_reason }));
+        table.append(el("tr", {},
+          el("td", { textContent: a.appt_date }),
+          el("td", { textContent: a.start_time + " - " + a.end_time }),
+          el("td", { textContent: a.topic + (a.description ? ": " + a.description : "") }),
+          statusCell, filesCell));
+      }
+      box.append(table);
+    }
+
+    dateInput.addEventListener("change", loadSlots);
+    document.getElementById("send").onclick = sendRequest;
+    setupLogout();
+    loadMe(); loadTopics(); loadAppointments();
   </script>
 </body>
 </html>
