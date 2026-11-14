@@ -5,8 +5,16 @@ from flask import Flask, jsonify, redirect, render_template, request, session
 from werkzeug.security import check_password_hash
 
 from database import get_db, init_db
+from scheduling import bp as scheduling_bp
 
 app = Flask(__name__, template_folder="../frontend", static_folder="../frontend/static")
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024  # a little above the 5 MB file limit
+app.register_blueprint(scheduling_bp)
+
+
+@app.errorhandler(413)
+def too_large(_):
+    return jsonify(error="The file is too large. The limit is 5 MB."), 413
 # Use a real secret from the environment in production
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 

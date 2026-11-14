@@ -2,21 +2,210 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Advisor Home</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <h1>Advisor Home</h1>
-  <p id="welcome">Loading...</p>
-  <button id="logout">Log out</button>
+  <header>
+    <h1>Advisor Home</h1>
+    <button id="logout">Log out</button>
+  </header>
+  <main>
+    <section>
+      <h2 id="welcome">Loading...</h2>
+    </section>
 
+    <section>
+      <h2>Pending requests</h2>
+      <div id="pending"><span class="muted">Loading...</span></div>
+      <div id="decision-msg" class="msg" role="alert"></div>
+    </section>
+
+    <section>
+      <h2>Weekly availability</h2>
+      <div class="row">
+        <div><label for="weekday">Day</label>
+          <select id="weekday">
+            <option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option>
+            <option value="3">Thursday</option><option value="4">Friday</option>
+            <option value="5">Saturday</option><option value="6">Sunday</option>
+          </select></div>
+        <div><label for="start">Start</label><input id="start" type="time" value="13:00"></div>
+        <div><label for="end">End</label><input id="end" type="time" value="15:00"></div>
+      </div>
+      <div class="row">
+        <div><label for="valid-from">Valid from</label><input id="valid-from" type="date"></div>
+        <div><label for="valid-to">Valid until</label><input id="valid-to" type="date"></div>
+      </div>
+      <div class="row">
+        <div><label for="mode">Meeting type</label>
+          <select id="mode"><option>In person</option><option>Online</option></select></div>
+        <div><label for="location">Location / link</label><input id="location" type="text" placeholder="Building A, room 201"></div>
+      </div>
+      <div id="rule-msg" class="msg" role="alert"></div>
+      <button id="add-rule" type="button">Add availability</button>
+      <h2 style="margin-top:18px">Saved availability</h2>
+      <div id="rules"></div>
+    </section>
+
+    <section>
+      <h2>Close a specific date</h2>
+      <p class="muted">Only that day is closed. Other weeks are not affected.</p>
+      <div class="row">
+        <input id="blocked-date" type="date">
+        <button id="add-blocked" type="button">Close this date</button>
+      </div>
+      <div id="blocked-msg" class="msg" role="alert"></div>
+      <div id="blocked"></div>
+    </section>
+
+    <section>
+      <h2>All appointments</h2>
+      <div id="all"><span class="muted">Loading...</span></div>
+    </section>
+  </main>
+
+  <script src="/static/common.js"></script>
   <script>
-    fetch("/api/me").then(r => r.json()).then(me => {
-      document.getElementById("welcome").textContent = "Welcome, " + me.full_name;
-    });
-    document.getElementById("logout").onclick = async () => {
-      await fetch("/api/auth/logout", { method: "POST" });
-      window.location.href = "/login";
+    const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+    function localToday() {
+      const d = new Date();
+      return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    }
+    document.getElementById("valid-from").value = localToday();
+    document.getElementById("blocked-date").min = localToday();
+
+    // ----- appointments -----
+    function filesCell(a) {
+      const cell = el("td", {});
+      const toggle = el("button", { type: "button", className: "secondary", textContent: "Files (" + a.file_count + ")" });
+      const box = el("div", { className: "files" });
+      toggle.onclick = () => { if (box.childElementCount) box.replaceChildren(); else renderFiles(box, a.id); };
+      cell.append(toggle, box);
+      return cell;
+    }
+
+    async function decide(id, status) {
+      const box = document.getElementById("decision-msg");
+      let reason = "";
+      if (status === "rejected") {
+        reason = prompt("Reason for rejecting (optional):") || "";
+      }
+      try {
+        const result = await api("/api/appointments/" + id, { method: "PATCH", json: { status, reason } });
+        let text = status === "approved" ? "Appointment approved." : "Appointment rejected.";
+        if (result.auto_rejected && result.auto_rejected.length) {
+          text += " " + result.auto_rejected.length + " overlapping request(s) were rejected automatically.";
+        }
+        showMessage(box, text, "success");
+      } catch (err) {
+        showMessage(box, err.message, "error");
+      }
+      await loadAppointments();
+    }
+
+    async function loadAppointments() {
+      const list = await api("/api/my-appointments");
+      const pending = list.filter(a => a.status === "pending");
+
+      const pbox = document.getElementById("pending");
+      pbox.replaceChildren();
+      if (pending.length === 0) pbox.append(el("span", { className: "muted", textContent: "No pending requests." }));
+      for (const a of pending) {
+        const approve = el("button", { type: "button", className: "ok", textContent: "Approve" });
+        const reject = el("button", { type: "button", className: "danger", textContent: "Reject" });
+        approve.onclick = () => decide(a.id, "approved");
+        reject.onclick = () => decide(a.id, "rejected");
+        pbox.append(el("div", { style: "border-bottom:1px solid #eee;padding:8px 0" },
+          el("strong", { textContent: a.student_name }),
+          el("div", { textContent: a.appt_date + ", " + a.start_time + " - " + a.end_time }),
+          el("div", { textContent: "Topic: " + a.topic }),
+          el("div", { className: "muted", textContent: a.description || "(no description)" }),
+          el("div", { className: "row", style: "margin-top:6px" }, approve, reject)));
+      }
+
+      const abox = document.getElementById("all");
+      abox.replaceChildren();
+      if (list.length === 0) { abox.append(el("span", { className: "muted", textContent: "No appointments yet." })); return; }
+      const table = el("table", {});
+      table.append(el("tr", {}, ...["Student", "Date", "Time", "Topic", "Status", "Files"].map(h => el("th", { textContent: h }))));
+      for (const a of list) {
+        const statusCell = el("td", {}, statusBadge(a.status));
+        if (a.decision_reason) statusCell.append(el("div", { className: "muted", textContent: a.decision_reason }));
+        table.append(el("tr", {},
+          el("td", { textContent: a.student_name }),
+          el("td", { textContent: a.appt_date }),
+          el("td", { textContent: a.start_time + " - " + a.end_time }),
+          el("td", { textContent: a.topic }),
+          statusCell, filesCell(a)));
+      }
+      abox.append(table);
+    }
+
+    // ----- availability rules -----
+    async function loadRules() {
+      const box = document.getElementById("rules");
+      const rules = await api("/api/availability-rules");
+      box.replaceChildren();
+      if (rules.length === 0) { box.append(el("span", { className: "muted", textContent: "Nothing added yet." })); return; }
+      for (const r of rules) {
+        const del = el("button", { type: "button", className: "danger", textContent: "Delete" });
+        del.onclick = async () => {
+          try { await api("/api/availability-rules/" + r.id, { method: "DELETE" }); } catch (e) { alert(e.message); }
+          loadRules();
+        };
+        box.append(el("div", { className: "row", style: "padding:6px 0;align-items:center" },
+          el("span", { textContent: DAYS[r.weekday] + " " + r.start_time + "-" + r.end_time + " (" + r.valid_from + " to " + r.valid_to + ") " +
+            r.meeting_mode + (r.location ? ", " + r.location : "") }), del));
+      }
+    }
+
+    document.getElementById("add-rule").onclick = async () => {
+      const box = document.getElementById("rule-msg");
+      try {
+        await api("/api/availability-rules", { json: {
+          weekday: document.getElementById("weekday").value,
+          start_time: document.getElementById("start").value,
+          end_time: document.getElementById("end").value,
+          valid_from: document.getElementById("valid-from").value,
+          valid_to: document.getElementById("valid-to").value,
+          meeting_mode: document.getElementById("mode").value,
+          location: document.getElementById("location").value } });
+        showMessage(box, "Availability saved.", "success");
+        loadRules();
+      } catch (err) {
+        showMessage(box, err.message, "error");
+      }
     };
+
+    // ----- closed dates -----
+    async function loadBlocked() {
+      const box = document.getElementById("blocked");
+      const list = await api("/api/blocked-dates");
+      box.replaceChildren();
+      for (const b of list) {
+        const open = el("button", { type: "button", className: "secondary", textContent: "Reopen" });
+        open.onclick = async () => { await api("/api/blocked-dates/" + b.id, { method: "DELETE" }); loadBlocked(); };
+        box.append(el("div", { className: "row", style: "padding:4px 0;align-items:center" }, el("span", { textContent: b.blocked_date }), open));
+      }
+    }
+
+    document.getElementById("add-blocked").onclick = async () => {
+      const box = document.getElementById("blocked-msg");
+      try {
+        await api("/api/blocked-dates", { json: { date: document.getElementById("blocked-date").value } });
+        showMessage(box, "Date closed.", "success");
+        loadBlocked();
+      } catch (err) {
+        showMessage(box, err.message, "error");
+      }
+    };
+
+    setupLogout();
+    api("/api/me").then(me => { document.getElementById("welcome").textContent = "Welcome, " + me.full_name; });
+    loadAppointments(); loadRules(); loadBlocked();
   </script>
 </body>
 </html>

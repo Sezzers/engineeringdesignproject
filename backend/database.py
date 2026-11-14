@@ -33,6 +33,54 @@ def init_db():
             user_id INTEGER PRIMARY KEY REFERENCES users(id),
             advisor_id INTEGER NOT NULL REFERENCES advisors(user_id)
         );
+
+        -- Weekly availability rule, e.g. every Tuesday 13:00-15:00 between two dates.
+        -- weekday: 0 = Monday ... 6 = Sunday. Times are "HH:MM".
+        CREATE TABLE IF NOT EXISTS availability (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            advisor_id INTEGER NOT NULL REFERENCES advisors(user_id),
+            weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            valid_from TEXT NOT NULL,
+            valid_to TEXT NOT NULL,
+            meeting_mode TEXT NOT NULL DEFAULT 'In person',
+            location TEXT NOT NULL DEFAULT ''
+        );
+
+        -- A single date the advisor closed (e.g. a meeting on that day).
+        CREATE TABLE IF NOT EXISTS blocked_dates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            advisor_id INTEGER NOT NULL REFERENCES advisors(user_id),
+            blocked_date TEXT NOT NULL,
+            UNIQUE (advisor_id, blocked_date)
+        );
+
+        CREATE TABLE IF NOT EXISTS appointments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL REFERENCES students(user_id),
+            advisor_id INTEGER NOT NULL REFERENCES advisors(user_id),
+            appt_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            topic TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'approved', 'rejected')),
+            decision_reason TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            appointment_id INTEGER NOT NULL REFERENCES appointments(id),
+            uploader_id INTEGER NOT NULL REFERENCES users(id),
+            original_name TEXT NOT NULL,
+            stored_name TEXT NOT NULL UNIQUE,
+            size_bytes INTEGER NOT NULL,
+            mime_type TEXT NOT NULL,
+            uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         """
     )
     conn.commit()
